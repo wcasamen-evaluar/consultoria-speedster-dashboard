@@ -1,6 +1,6 @@
-# Consultoria Macrotech - Evaluacion 360
+# Consultoría Speedster - Evaluación de Talento
 
-Proyecto para procesar resultados de Evaluacion 360 de Macrotech, visualizar indicadores en Streamlit y generar informes PDF individuales.
+Proyecto para procesar los resultados de evaluación de Speedster, visualizar indicadores en Streamlit y generar reportes individuales.
 
 ## Estructura
 
@@ -31,6 +31,13 @@ streamlit run dashboard_360.py
 El dashboard carga automáticamente `Fase_I_Evaluación_360__180__90__copia_.xlsx` desde la raíz del proyecto. No requiere carga manual. La caché se invalida cuando cambia el archivo.
 
 La hoja `Desempeño` contiene la exportación original de Fase I y se recalcula desde `respuesta_valor`. Durante la transición también se admite el nombre anterior `Resultado consulta`. La hoja `Potencial` alimenta Fase II.
+
+La hoja `Potencial` admite los dos formatos usados por el proyecto:
+
+- Formato histórico Macrotech, con `NOMBRE COMPLETO` y bloques de cuatro columnas que comienzan en `Valor`, `Esperado` y `Brecha`.
+- Formato Speedster, con `Nombres`, `Apellidos`, `Nombre del Perfil` y bloques `Valor`, `Esperado`, `Brecha`, `Cumplimiento`.
+
+El lector detecta las filas de encabezados y la posición de cada competencia; no depende de un número fijo de columnas. Para integrar fuentes sin correo también tolera que las partes del nombre aparezcan en distinto orden y un segundo nombre adicional, siempre que la coincidencia sea única y no ambigua.
 
 ## Reportes PDF
 

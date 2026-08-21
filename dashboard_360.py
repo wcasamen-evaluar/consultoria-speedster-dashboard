@@ -28,15 +28,17 @@ from plotly.subplots import make_subplots
 from reporte import calculos as motor_360
 from reporte import potencial as motor_potencial
 from reporte import objetivos as motor_objetivos
+from reporte import integrado as motor_integrado
 from reporte import db as data_db
 
 
+SPEEDSTER_LOGO = Path(__file__).resolve().parent / "logos" / "speedster_logo.png"
 ARCHIVO_BASE = next(
     Path(__file__).parent.glob("Fase_I_Evaluaci*n_360__180__90__copia_.xlsx"),
     Path(__file__).with_name("Fase_I_Evaluación_360__180__90__copia_.xlsx"),
 )
-VERSION_CARGA_BASE = 8
-VERSION_CARGA_DB = 8
+VERSION_CARGA_BASE = 10
+VERSION_CARGA_DB = 10
 
 EXCLUIDOS_DESEMPENO_EMAILS = {
     "malvarado@macrotech.com.do",
@@ -121,10 +123,21 @@ html, body, [class*="css"] {
     flex-wrap: wrap;
     min-width: 0;
 }
+.ev-client-logo-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 58px;
+    padding: 3px 14px;
+    background: #ffffff;
+    border: 1px solid rgba(255,255,255,0.75);
+    border-radius: 10px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+}
 .ev-client-logo {
-    height: 42px;
+    height: 54px;
     width: auto;
-    max-width: 210px;
+    max-width: 300px;
     object-fit: contain;
     padding: 2px 0;
 }
@@ -138,8 +151,12 @@ html, body, [class*="css"] {
         justify-content: flex-start;
     }
     .ev-client-logo {
-        height: 34px;
-        max-width: 165px;
+        height: 44px;
+        max-width: 240px;
+    }
+    .ev-client-logo-card {
+        min-height: 48px;
+        padding: 2px 10px;
     }
 }
 
@@ -576,13 +593,10 @@ def escala_objetivos_label(v: float) -> str:
     return ""
 
 
-POTENCIAL_ESCALAS = ["Potencial Alto", "Potencial Medio", "Potencial Bajo"]
+POTENCIAL_ESCALAS = motor_potencial.NIVELES_COMPETENCIAS
 POTENCIAL_LIMITES = (80, 85)
-POTENCIAL_COLORES = {
-    "Potencial Alto": "#36a65c",
-    "Potencial Medio": "#f0c419",
-    "Potencial Bajo": "#d94a45",
-}
+POTENCIAL_COLORES = motor_potencial.COLORES_NIVELES_COMPETENCIAS
+POTENCIAL_RANGOS = motor_potencial.RANGOS_NIVELES_COMPETENCIAS
 DISC_PALETA = [
     "#185fa5", "#1d9e75", "#e6a700", "#d95f59", "#7c5cc4",
     "#285b78", "#f47c3c", "#6c3fc5", "#2f9f8f", "#b64e82",
@@ -591,15 +605,7 @@ IQ_PALETA = ["#285b78", "#3f7ee8", "#1d9e75", "#e6a700", "#f47c3c", "#d95f59", "
 
 
 def escala_potencial_label(valor: object) -> str:
-    puntaje = pd.to_numeric(pd.Series([valor]), errors="coerce").iloc[0]
-    if pd.isna(puntaje):
-        return ""
-    puntaje_redondeado = round(float(puntaje))
-    if puntaje_redondeado >= POTENCIAL_LIMITES[1]:
-        return "Potencial Alto"
-    if puntaje_redondeado >= POTENCIAL_LIMITES[0]:
-        return "Potencial Medio"
-    return "Potencial Bajo"
+    return motor_potencial.clasificar_nivel_competencias(valor)
 
 
 CURVA_DESARROLLO_DESCRIPCIONES = {
@@ -713,7 +719,7 @@ def color_valor_potencial(valor: float, limites: tuple[float, float]) -> tuple[s
 def fig_valores_potencial(df: pd.DataFrame, limites: tuple[float, float]) -> go.Figure:
     datos = df[df["puntaje"].notna()].copy()
     datos["competencia"] = datos["competencia"].map(reparar_texto)
-    altura = max(520, len(df) * 24)
+    altura = max(520, len(datos) * 24)
     datos["color_barra"] = datos["puntaje"].apply(
         lambda valor: "#d94a45" if valor < limites[0] else "#f0c419" if valor < limites[1] else "#36a65c"
     )
@@ -743,7 +749,7 @@ def fig_valores_potencial(df: pd.DataFrame, limites: tuple[float, float]) -> go.
             title="",
             autorange="reversed",
             categoryorder="array",
-            categoryarray=[reparar_texto(valor) for valor in ORDEN_VALORES_POTENCIAL],
+            categoryarray=datos["competencia"].tolist(),
             tickfont_size=10,
         ),
     )
@@ -864,7 +870,15 @@ def fig_escala_potencial(df: pd.DataFrame, columna: str) -> go.Figure:
         **layout,
         height=280,
         showlegend=False,
-        xaxis=dict(tickfont_size=11),
+        xaxis=dict(
+            tickfont_size=11,
+            tickmode="array",
+            tickvals=POTENCIAL_ESCALAS,
+            ticktext=[
+                f"{escala}<br>{POTENCIAL_RANGOS[escala]}"
+                for escala in POTENCIAL_ESCALAS
+            ],
+        ),
         yaxis=dict(
             title="Colaboradores",
             gridcolor="#f0eef8",
@@ -1248,11 +1262,7 @@ NINEBOX_LABELS = {
 
 
 def normalizar_nombre_match(nombre: object) -> str:
-    texto = "" if nombre is None else str(nombre)
-    texto = unicodedata.normalize("NFKD", texto)
-    texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
-    texto = re.sub(r"[^a-zA-Z0-9]+", " ", texto).strip().casefold()
-    return re.sub(r"\s+", " ", texto)
+    return motor_360.normalizar_nombre_persona("" if nombre is None else nombre)
 
 
 def normalizar_correo(correo: object) -> str:
@@ -1276,6 +1286,9 @@ def preparar_ninebox(df_360_global: pd.DataFrame, df_potencial: pd.DataFrame) ->
     potencial = df_potencial[
         [col for col in ["colaborador", "evaluacion_potencial", "correo", "correo_potencial", "correo_instancia"] if col in df_potencial.columns]
     ].copy()
+    desempeno_original = desempeno.copy()
+    potencial_original = potencial.copy()
+    potencial_cols = list(potencial.columns)
     desempeno = expandir_llaves_match(
         desempeno,
         ["email_colaborador", "correo"],
@@ -1286,8 +1299,36 @@ def preparar_ninebox(df_360_global: pd.DataFrame, df_potencial: pd.DataFrame) ->
         potencial,
         ["correo", "correo_potencial", "correo_instancia"],
         "colaborador",
-        list(potencial.columns),
+        potencial_cols,
     )
+    nombres_potencial = potencial_original["colaborador"].dropna().astype(str).tolist()
+    potencial_con_llave = potencial_original.assign(
+        _match_nombre=potencial_original["colaborador"].map(normalizar_nombre_match)
+    )
+    alias_flexibles = []
+    for nombre_desempeno in desempeno_original["colaborador"].dropna().astype(str).unique():
+        match_desempeno = normalizar_nombre_match(nombre_desempeno)
+        match_potencial = motor_360.resolver_nombre_equivalente_unico(
+            nombre_desempeno,
+            nombres_potencial,
+        )
+        if not match_potencial or match_potencial == match_desempeno:
+            continue
+        coincidencias = potencial_con_llave[
+            potencial_con_llave["_match_nombre"].eq(match_potencial)
+        ]
+        if len(coincidencias) != 1:
+            continue
+        fila = coincidencias.iloc[0]
+        registro = {"match_key": f"nombre::{match_desempeno}"}
+        for columna in potencial_cols:
+            registro[columna] = fila.get(columna)
+        alias_flexibles.append(registro)
+    if alias_flexibles:
+        potencial = pd.concat(
+            [potencial, pd.DataFrame(alias_flexibles)],
+            ignore_index=True,
+        ).drop_duplicates("match_key")
     merged = desempeno.merge(
         potencial,
         on="match_key",
@@ -1337,6 +1378,18 @@ def construir_indice_colaboradores(res_360: dict, res_potencial: dict, res_objet
                 ),
                 None,
             )
+        if key is None and nombre_key:
+            nombre_equivalente = motor_360.resolver_nombre_equivalente_unico(
+                nombre_key,
+                [registro.get("colaborador_key", "") for registro in registros.values()],
+            )
+            claves_equivalentes = [
+                registro_key
+                for registro_key, registro in registros.items()
+                if registro.get("colaborador_key") == nombre_equivalente
+            ]
+            if nombre_equivalente and len(claves_equivalentes) == 1:
+                key = claves_equivalentes[0]
         if key is None and not permitir_crear:
             return
         if key is None:
@@ -1920,18 +1973,13 @@ def requerir_login() -> None:
     usuario_ok, clave_ok = obtener_credenciales_auth()
 
     try:
-        svg_bytes = Path("brand_evaluar_on_dark.svg").read_bytes()
+        svg_bytes = Path(__file__).resolve().parent.joinpath("brand_evaluar_on_dark.svg").read_bytes()
         svg_b64 = base64.b64encode(svg_bytes).decode("ascii")
         logo_login_html = (
             f'<img class="login-logo" src="data:image/svg+xml;base64,{svg_b64}" alt="Evaluar">'
         )
     except FileNotFoundError:
-        logo_login_html = (
-            '<span class="login-logo-fallback">'
-            'e<span style="background:linear-gradient(90deg,#c13bc4,#f47c3c);'
-            '-webkit-background-clip:text;-webkit-text-fill-color:transparent;'
-            'background-clip:text">v</span>aluar</span>'
-        )
+        logo_login_html = '<span class="login-logo-fallback">Evaluar</span>'
 
     st.markdown(
         f"""
@@ -1963,6 +2011,7 @@ def requerir_login() -> None:
         .login-logo {{
             height: 42px;
             width: auto;
+            max-width: 100%;
             display: block;
             margin: 0 auto;
         }}
@@ -2062,9 +2111,32 @@ def cargar_base_excel(
     """Carga ambas fases desde el Excel local."""
     del ultima_modificacion, version_carga
     df_desempeno = motor_360.leer_exportacion_dashboard(ruta)
+    res_360 = calcular(df_desempeno, PESOS_PONDERACION)
+    res_potencial = motor_potencial.leer_potencial(ruta)
+    metadata = motor_360.leer_metadata_organizacional(ruta)
+    if not metadata.empty:
+        res_360["df_global"] = motor_360.completar_metadata_colaboradores(
+            res_360["df_global"],
+            metadata,
+            "colaborador",
+            "email_colaborador",
+        )
+        res_360["df_metadata"] = metadata
+        res_potencial["df_personas"] = motor_360.completar_metadata_colaboradores(
+            res_potencial["df_personas"],
+            metadata,
+            "colaborador",
+            "correo",
+        )
+        res_potencial["df_competencias"] = motor_360.completar_metadata_colaboradores(
+            res_potencial["df_competencias"],
+            metadata,
+            "colaborador",
+            "correo",
+        )
     return (
-        calcular(df_desempeno, PESOS_PONDERACION),
-        motor_potencial.leer_potencial(ruta),
+        res_360,
+        res_potencial,
         motor_objetivos.leer_objetivos(ruta),
     )
 
@@ -2074,6 +2146,26 @@ def cargar_base_neon(database_url: str, schema: str, version_carga: int) -> tupl
     """Carga ambas fases desde PostgreSQL y recalcula las metricas del dashboard."""
     del version_carga
     df_desempeno, res_potencial, res_objetivos = data_db.leer_base_dashboard(database_url, schema)
+    metadata = motor_360.leer_metadata_organizacional(ARCHIVO_BASE)
+    if not metadata.empty:
+        df_desempeno = motor_360.completar_metadata_colaboradores(
+            df_desempeno,
+            metadata,
+            "nombre_colaborador",
+            "email_colaborador",
+        )
+        res_potencial["df_personas"] = motor_360.completar_metadata_colaboradores(
+            res_potencial["df_personas"],
+            metadata,
+            "colaborador",
+            "correo",
+        )
+        res_potencial["df_competencias"] = motor_360.completar_metadata_colaboradores(
+            res_potencial["df_competencias"],
+            metadata,
+            "colaborador",
+            "correo",
+        )
     return calcular(df_desempeno, PESOS_PONDERACION), res_potencial, res_objetivos
 
 
@@ -2605,6 +2697,24 @@ def preparar_resultado_integrado(
     df_obj_fuente: pd.DataFrame,
     df_360_metadata: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
+    # Mantiene una sola regla de integración para dashboard, Excel y PDFs.
+    return motor_integrado.preparar_resultado_integrado(
+        df_360_global,
+        df_obj_colab,
+        df_potencial,
+        df_obj_fuente,
+        df_360_metadata,
+    )
+
+
+def _preparar_resultado_integrado_legacy(
+    df_360_global: pd.DataFrame,
+    df_obj_colab: pd.DataFrame,
+    df_potencial: pd.DataFrame,
+    df_obj_fuente: pd.DataFrame,
+    df_360_metadata: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Implementación anterior conservada para comparación durante la migración."""
     df_360_para_integrar = df_360_global.copy()
     if df_360_metadata is not None and not df_360_metadata.empty:
         correos_con_puntaje = set(
@@ -3063,7 +3173,6 @@ df_ninebox_clasificado_general = (
 )
 
 FILTROS_GLOBALES_KEYS = [
-    "filtro_global_empresa",
     "filtro_global_cargo",
     "filtro_global_jefe",
     "filtro_global_pais",
@@ -3078,23 +3187,20 @@ def limpiar_filtros_globales() -> None:
 
 
 with st.sidebar:
-    # Logo: leer SVG y embeber como HTML para que funcione sobre fondo oscuro
-    try:
-        with open("brand_evaluar_on_dark.svg", "r", encoding="utf-8") as f:
-            svg_content = f.read()
+    logo_evaluar_uri = imagen_data_uri(
+        Path(__file__).resolve().parent / "brand_evaluar_on_dark.svg"
+    )
+    if logo_evaluar_uri:
         st.markdown(
-            f'<div style="padding:16px 8px 0">{svg_content}</div>',
+            f'<div style="padding:16px 8px 0;text-align:center">'
+            f'<img src="{logo_evaluar_uri}" alt="Evaluar" '
+            f'style="width:100%;max-width:220px;height:auto"></div>',
             unsafe_allow_html=True,
         )
-    except FileNotFoundError:
-        # Fallback si el SVG no estÃ¡ en la misma carpeta
+    else:
         st.markdown("""
         <div style="padding:16px 8px 0;text-align:center">
-            <span style="font-size:26px;font-weight:700;color:white;letter-spacing:-0.5px">
-                e<span style="background:linear-gradient(90deg,#c13bc4,#f47c3c);
-                -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-                background-clip:text">v</span>aluar
-            </span>
+            <span style="font-size:26px;font-weight:700;color:white">Evaluar</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -3114,14 +3220,15 @@ with st.sidebar:
     opciones_globales = {
         col: sorted(indice_global[col].dropna().loc[indice_global[col].dropna() != ""].unique().tolist())
         if col in indice_global.columns else []
-        for col in ["empresa", "cargo", "jefe", "pais", "area", "grupo"]
+        for col in ["cargo", "jefe", "pais", "area", "grupo"]
     }
-    filtro_global_empresa = st.multiselect(
+    st.text_input(
         "Empresa",
-        opciones_globales["empresa"],
-        key="filtro_global_empresa",
-        placeholder="Todas",
+        value="Speedster",
+        disabled=True,
+        key="filtro_global_empresa_fija",
     )
+    filtro_global_empresa = []
     filtro_global_cargo = st.multiselect(
         "Cargo",
         opciones_globales["cargo"],
@@ -3249,40 +3356,26 @@ if hay_filtros_globales:
 # DASHBOARD
 resumen_fuente = res.get("resumen_fuente", {})
 
-try:
-    with open("brand_evaluar_on_dark.svg", "r", encoding="utf-8") as f:
-        _svg = f.read()
-    _svg = _svg.replace("<svg ", '<svg style="height:32px;width:auto;display:block" ', 1)
-    logo_html = _svg
-except FileNotFoundError:
-    logo_html = (
-        '<span style="font-size:22px;font-weight:700;color:white;letter-spacing:-0.5px">'
-        'e<span style="background:linear-gradient(90deg,#c13bc4,#f47c3c);'
-        '-webkit-background-clip:text;-webkit-text-fill-color:transparent;'
-        'background-clip:text">v</span>aluar</span>'
-    )
-
-ciclo_limpio = str(res.get("ciclo", ""))
-logos_cliente = [
-    ("Macrotech", Path("logos") / "Logo Horizontal Macrotech blanco.png"),
-    ("CIMER", Path("logos") / "Logo CIMER blanco, horizontal.png"),
-    ("CAI", Path("logos") / "Logo-CAI-blanco,-horizontal.png"),
-]
-logos_cliente_html = "".join(
-    f'<img class="ev-client-logo" src="{uri}" alt="{html_lib.escape(nombre)}">'
-    for nombre, ruta in logos_cliente
-    if (uri := imagen_data_uri(ruta))
+logo_evaluar_uri = imagen_data_uri(
+    Path(__file__).resolve().parent / "brand_evaluar_on_dark.svg"
 )
-if not logos_cliente_html:
-    logos_cliente_html = (
-        f'<span class="ev-cycle">Fase I - Evaluaci\u00f3n 360 - '
-        f'{html_lib.escape(ciclo_limpio)}</span>'
-    )
+logo_evaluar_html = (
+    f'<img src="{logo_evaluar_uri}" alt="Evaluar" '
+    f'style="height:32px;width:auto;display:block">'
+    if logo_evaluar_uri
+    else '<span style="font-size:22px;font-weight:700;color:white">Evaluar</span>'
+)
+logo_speedster_uri = imagen_data_uri(SPEEDSTER_LOGO)
+logo_speedster_html = (
+    f'<img class="ev-client-logo" src="{logo_speedster_uri}" alt="Speedster">'
+    if logo_speedster_uri
+    else '<span style="font-size:22px;font-weight:700;color:#008b8b">Speedster</span>'
+)
 
 st.markdown(f"""
 <div class="ev-topbar">
-    <div style="display:flex;align-items:center">{logo_html}</div>
-    <div class="ev-client-logos">{logos_cliente_html}</div>
+    <div style="display:flex;align-items:center">{logo_evaluar_html}</div>
+    <div class="ev-client-logos"><div class="ev-client-logo-card">{logo_speedster_html}</div></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -3813,16 +3906,10 @@ if fase_activa == "fase2":
     with sub_f2_pot:
         limites_valores = (70, 85)
 
-        if not df_valores_potencial.empty:
-            df_valores_mapeo = df_valores_potencial.copy()
-            df_valores_mapeo["competencia_limpia"] = df_valores_mapeo["competencia"].map(reparar_texto)
-            df_valores_mapeo["clave_competencia"] = df_valores_mapeo["competencia_limpia"].map(clave_texto)
-            promedios_valores = df_valores_mapeo.groupby("clave_competencia")["ajuste"].mean().mul(100)
-        else:
-            promedios_valores = pd.Series(dtype=float)
-        tabla_valores = pd.DataFrame({"competencia": ORDEN_VALORES_POTENCIAL})
-        tabla_valores["clave_competencia"] = tabla_valores["competencia"].map(clave_texto)
-        tabla_valores["puntaje"] = tabla_valores["clave_competencia"].map(promedios_valores)
+        tabla_valores = motor_potencial.resumir_competencias_evaluadas(
+            df_valores_potencial,
+            ORDEN_VALORES_POTENCIAL,
+        )
 
         tabla_col, grafico_col = st.columns([1, 3])
         with tabla_col:
@@ -4087,7 +4174,10 @@ if fase_activa == "fase2":
             st.info("No hay personas evaluadas para los filtros seleccionados.")
         else:
             tabla_evaluados = df_potencial_evaluado.copy()
-            orden_niveles = {nivel: indice for indice, nivel in enumerate(POTENCIAL_ESCALAS)}
+            orden_niveles = {
+                nivel: indice
+                for indice, nivel in enumerate(reversed(POTENCIAL_ESCALAS))
+            }
             tabla_evaluados["orden_nivel"] = tabla_evaluados["nivel_potencial"].map(orden_niveles)
             tabla_evaluados = tabla_evaluados.sort_values(
                 ["orden_nivel", "evaluacion_potencial", "colaborador"],
@@ -4102,9 +4192,9 @@ if fase_activa == "fase2":
                 "<th>Nivel de Competencias</th></tr></thead><tbody>"
             )
             fondos_nivel = {
-                "Potencial Alto": "#e5f4ea",
-                "Potencial Medio": "#fff6d6",
-                "Potencial Bajo": "#fbe9e8",
+                "Ajuste al perfil": "#e5f4ea",
+                "Cercano al Perfil": "#fff6d6",
+                "Alejado del perfil": "#fbe9e8",
             }
             for _, fila in tabla_evaluados.iterrows():
                 colaborador_valor = fila.get("colaborador")

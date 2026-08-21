@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 import warnings
 from pathlib import Path
 
@@ -14,6 +15,21 @@ HOJA_POTENCIAL = "Potencial"
 ETIQUETAS_ESCALA = ["Ajustado al perfil", "Cercano al perfil", "Alejado al perfil"]
 MAPA_ESCALA = {etiqueta.casefold(): etiqueta for etiqueta in ETIQUETAS_ESCALA}
 LIMITES_NIVEL_POTENCIAL = (80, 85)
+NIVELES_COMPETENCIAS = [
+    "Alejado del perfil",
+    "Cercano al Perfil",
+    "Ajuste al perfil",
+]
+RANGOS_NIVELES_COMPETENCIAS = {
+    "Alejado del perfil": "0 - 79",
+    "Cercano al Perfil": "80 - 84",
+    "Ajuste al perfil": "85 - 100",
+}
+COLORES_NIVELES_COMPETENCIAS = {
+    "Alejado del perfil": "#d94a45",
+    "Cercano al Perfil": "#f0a000",
+    "Ajuste al perfil": "#1d9e75",
+}
 
 
 def clasificar_nivel_potencial(valor: object) -> str:
@@ -27,6 +43,81 @@ def clasificar_nivel_potencial(valor: object) -> str:
     if puntaje_redondeado >= LIMITES_NIVEL_POTENCIAL[0]:
         return "Potencial Medio"
     return "Potencial Bajo"
+
+
+def clasificar_nivel_competencias(valor: object) -> str:
+    """Aplica los cortes oficiales 80/85 con las etiquetas de competencias."""
+    puntaje = pd.to_numeric(pd.Series([valor]), errors="coerce").iloc[0]
+    if pd.isna(puntaje):
+        return ""
+    puntaje_redondeado = round(float(puntaje))
+    if puntaje_redondeado >= LIMITES_NIVEL_POTENCIAL[1]:
+        return "Ajuste al perfil"
+    if puntaje_redondeado >= LIMITES_NIVEL_POTENCIAL[0]:
+        return "Cercano al Perfil"
+    return "Alejado del perfil"
+
+
+def resumir_competencias_evaluadas(
+    df_competencias: pd.DataFrame,
+    orden_preferido: list[str] | None = None,
+) -> pd.DataFrame:
+    """Promedia únicamente competencias que tienen un ajuste evaluado.
+
+    Ordena de mayor a menor promedio. El catálogo histórico y el orden de
+    aparición solo se usan para desempatar resultados iguales.
+    """
+    columnas_salida = ["competencia", "clave_competencia", "puntaje"]
+    if (
+        df_competencias.empty
+        or "competencia" not in df_competencias
+        or "ajuste" not in df_competencias
+    ):
+        return pd.DataFrame(columns=columnas_salida)
+
+    datos = df_competencias[["competencia", "ajuste"]].copy()
+    datos["competencia"] = datos["competencia"].apply(_limpiar_texto)
+    datos["clave_competencia"] = datos["competencia"].map(_clave_encabezado)
+    datos["ajuste"] = pd.to_numeric(datos["ajuste"], errors="coerce")
+    datos["orden_origen"] = range(len(datos))
+    datos = datos[
+        datos["ajuste"].notna() & datos["clave_competencia"].ne("")
+    ].copy()
+    if datos.empty:
+        return pd.DataFrame(columns=columnas_salida)
+
+    resumen = (
+        datos.groupby("clave_competencia", sort=False, as_index=False)
+        .agg(
+            competencia=("competencia", "first"),
+            puntaje=("ajuste", "mean"),
+            orden_origen=("orden_origen", "min"),
+        )
+    )
+    resumen["puntaje"] = resumen["puntaje"].mul(100)
+
+    catalogo = orden_preferido or []
+    mapa_catalogo = {
+        _clave_encabezado(competencia): (indice, competencia)
+        for indice, competencia in enumerate(catalogo)
+    }
+    resumen["orden_catalogo"] = resumen["clave_competencia"].map(
+        lambda clave: mapa_catalogo.get(clave, (len(catalogo), ""))[0]
+    )
+    resumen["es_nueva"] = ~resumen["clave_competencia"].isin(mapa_catalogo)
+    resumen["competencia"] = resumen.apply(
+        lambda fila: mapa_catalogo.get(
+            fila["clave_competencia"],
+            (None, fila["competencia"]),
+        )[1],
+        axis=1,
+    )
+    resumen = resumen.sort_values(
+        ["puntaje", "es_nueva", "orden_catalogo", "orden_origen"],
+        ascending=[False, True, True, True],
+        kind="stable",
+    )
+    return resumen[columnas_salida].reset_index(drop=True)
 
 
 def contar_escala(df: pd.DataFrame, columna: str) -> pd.Series:
@@ -53,6 +144,98 @@ def _codigo_arquetipo(valor):
     return match.group(1).strip() if match else valor.strip()
 
 
+def _clave_encabezado(valor: object) -> str:
+    """Normaliza encabezados sin depender de tildes o sufijos de pandas."""
+    if valor is None or pd.isna(valor):
+        return ""
+    texto = unicodedata.normalize("NFKD", str(valor))
+    texto = "".join(char for char in texto if not unicodedata.combining(char))
+    texto = re.sub(r"\.\d+$", "", texto.strip().casefold())
+    return re.sub(r"[^a-z0-9]+", " ", texto).strip()
+
+
+def _detectar_filas_encabezado(raw: pd.DataFrame) -> tuple[int, int]:
+    """Ubica las filas de campos y grupos en variantes históricas y nuevas.
+
+    La exportación histórica usa dos filas auxiliares antes de los campos. La
+    exportación nueva usa una fila de grupos y otra de campos; en el archivo
+    original algunos campos personales aparecen en la fila de grupos. Se
+    detecta la fila con la secuencia Valor/Esperado/Brecha y se conserva la
+    fila inmediatamente anterior como catálogo de competencias.
+    """
+    limite = min(len(raw), 10)
+    mejor_fila = -1
+    mejor_puntaje = -1
+    for indice in range(limite):
+        claves = [_clave_encabezado(valor) for valor in raw.iloc[indice].tolist()]
+        metricas = sum(
+            clave.startswith(("valor", "esperado", "brecha"))
+            for clave in claves
+        )
+        identidad = sum(
+            clave in {
+                "nombre completo",
+                "nombre del perfil",
+                "nombres",
+                "apellidos",
+                "correo",
+                "correo potencial",
+            }
+            for clave in claves
+        )
+        puntaje = metricas * 10 + identidad
+        if puntaje > mejor_puntaje:
+            mejor_fila = indice
+            mejor_puntaje = puntaje
+
+    if mejor_fila < 0 or mejor_puntaje <= 0:
+        raise ValueError(
+            "No se pudo identificar la fila de encabezados de la hoja 'Potencial'."
+        )
+    return mejor_fila, max(0, mejor_fila - 1)
+
+
+def _completar_encabezados_persona(
+    df: pd.DataFrame,
+    raw: pd.DataFrame,
+    fila_encabezado: int,
+) -> pd.DataFrame:
+    """Recupera campos personales ubicados en la fila superior del exporte."""
+    if fila_encabezado <= 0:
+        return df
+    fila_superior = raw.iloc[fila_encabezado - 1].tolist()
+    renombres = {}
+    for indice, columna in enumerate(df.columns):
+        if indice >= len(fila_superior) or not str(columna).startswith("Unnamed"):
+            continue
+        candidato = fila_superior[indice]
+        clave = _clave_encabezado(candidato)
+        if clave in {
+            "email",
+            "correo",
+            "correo potencial",
+            "correo instancia",
+            "nombre completo",
+            "nombres",
+            "apellidos",
+            "nombre del perfil",
+            "empresa",
+            "cargo",
+            "jefe",
+            "grupo",
+            "pais",
+            "area",
+            "cap",
+            "competencias",
+            "potencial 2025",
+            "evaluacion de potencial",
+            "escala benchmark externo",
+            "escala potencial",
+        }:
+            renombres[columna] = str(candidato).strip()
+    return df.rename(columns=renombres)
+
+
 def _clasificar_potencial(
     valor,
     limites: tuple[float, float],
@@ -77,8 +260,6 @@ def _preparar_columnas_persona(df: pd.DataFrame) -> pd.DataFrame:
         "Correo": "correo",
         "Correo Potencial": "correo_potencial",
         "Correo Instancia": "correo_instancia",
-        "NOMBRE COMPLETO": "colaborador",
-        "Nombre del Perfil": "colaborador",
         "No. IdentificaciÃ³n": "identificacion",
         "No. Identificación": "identificacion",
         "PaÃ­s": "pais",
@@ -94,12 +275,24 @@ def _preparar_columnas_persona(df: pd.DataFrame) -> pd.DataFrame:
         "Escala Potencial": "escala_potencial",
     }
     df = df.rename(columns={col: rename_map.get(col, col) for col in df.columns})
+
+    # Prioridad de identidad: nombre completo explícito, nombres/apellidos y,
+    # únicamente en el formato histórico, Nombre del Perfil.
+    if "colaborador" not in df.columns and "NOMBRE COMPLETO" in df.columns:
+        df["colaborador"] = df["NOMBRE COMPLETO"]
     if "colaborador" not in df.columns and {"Nombres", "Apellidos"}.issubset(df.columns):
         df["colaborador"] = (
             df["Nombres"].fillna("").astype(str).str.strip()
             + " "
             + df["Apellidos"].fillna("").astype(str).str.strip()
         ).str.strip()
+    if "colaborador" not in df.columns and "Nombre del Perfil" in df.columns:
+        df["colaborador"] = df["Nombre del Perfil"]
+
+    if "Nombre del Perfil" in df.columns:
+        df["perfil"] = df["Nombre del Perfil"]
+        if "Cargo" not in df.columns and "cargo" not in df.columns:
+            df["cargo"] = df["perfil"]
 
     defaults = {
         "correo": df.get("correo_potencial", pd.NA),
@@ -128,14 +321,15 @@ def _preparar_columnas_persona(df: pd.DataFrame) -> pd.DataFrame:
 
 def leer_potencial(ruta: str | Path) -> dict:
     """Convierte la matriz ancha de Potencial en tablas de personas y competencias."""
-    xls = pd.ExcelFile(ruta)
-    if HOJA_POTENCIAL not in xls.sheet_names:
-        raise ValueError("El archivo base debe contener la hoja 'Potencial'.")
+    with pd.ExcelFile(ruta) as xls:
+        if HOJA_POTENCIAL not in xls.sheet_names:
+            raise ValueError("El archivo base debe contener la hoja 'Potencial'.")
 
-    raw = pd.read_excel(xls, sheet_name=HOJA_POTENCIAL, header=None)
-    header_row = 1 if "Correo Potencial" in raw.iloc[1].astype(str).tolist() else 2
-    grupos = raw.iloc[header_row - 1].tolist() if header_row > 0 else [pd.NA] * raw.shape[1]
-    df = pd.read_excel(xls, sheet_name=HOJA_POTENCIAL, header=header_row)
+        raw = pd.read_excel(xls, sheet_name=HOJA_POTENCIAL, header=None)
+        header_row, grupos_row = _detectar_filas_encabezado(raw)
+        grupos = raw.iloc[grupos_row].tolist() if header_row > 0 else [pd.NA] * raw.shape[1]
+        df = pd.read_excel(xls, sheet_name=HOJA_POTENCIAL, header=header_row)
+    df = _completar_encabezados_persona(df, raw, header_row)
     rename_grupos = {}
     for idx, col in enumerate(df.columns):
         grupo = grupos[idx] if idx < len(grupos) else pd.NA
@@ -174,17 +368,31 @@ def leer_potencial(ruta: str | Path) -> dict:
     columnas = list(df.columns)
     competencias = []
     catalogo_competencias = []
-    idx_inicio = 17 if len(columnas) > 17 and str(columnas[17]).startswith("Valor") else 13
-    for inicio in range(idx_inicio, len(columnas), 4):
+    for inicio in range(len(columnas)):
         if inicio + 3 >= len(columnas):
             break
         col_valor, col_esperado, col_brecha, col_ajuste = columnas[inicio:inicio + 4]
-        if not str(col_valor).startswith("Valor"):
+        if not (
+            _clave_encabezado(col_valor).startswith("valor")
+            and _clave_encabezado(col_esperado).startswith("esperado")
+            and _clave_encabezado(col_brecha).startswith("brecha")
+        ):
             continue
-        nombre_competencia = grupos[inicio] if inicio < len(grupos) else col_ajuste
+        candidatos_grupo = [
+            grupos[indice]
+            for indice in range(inicio, min(inicio + 4, len(grupos)))
+            if isinstance(grupos[indice], str) and grupos[indice].strip()
+        ]
+        nombre_competencia = candidatos_grupo[0] if candidatos_grupo else col_ajuste
         if pd.isna(nombre_competencia) or str(nombre_competencia).startswith("Unnamed"):
             continue
         nombre_competencia = str(nombre_competencia).strip()
+        if _clave_encabezado(nombre_competencia) in {
+            "valor", "esperado", "brecha", "ajuste", "cumplimiento"
+        }:
+            continue
+        if nombre_competencia in catalogo_competencias:
+            continue
         catalogo_competencias.append(nombre_competencia)
 
         bloque = df[

@@ -213,6 +213,96 @@ class NineboxLabelsTest(unittest.TestCase):
         self.assertIn("cortes = cortes_ninebox_general", contenido)
         self.assertNotIn("cortes = cortes_ninebox(df_ninebox_base)", contenido)
 
+    def test_dashboard_unifica_un_segundo_nombre_adicional(self):
+        ruta = Path(__file__).resolve().parents[1] / "dashboard_360.py"
+        arbol = ast.parse(ruta.read_text(encoding="utf-8-sig"))
+        requeridas = {
+            "normalizar_nombre_match",
+            "normalizar_correo",
+            "preparar_ninebox",
+            "expandir_llaves_match",
+        }
+        funciones = [
+            nodo
+            for nodo in arbol.body
+            if isinstance(nodo, ast.FunctionDef) and nodo.name in requeridas
+        ]
+        espacio = {"pd": pd, "motor_360": calculos}
+        exec(compile(ast.Module(body=funciones, type_ignores=[]), str(ruta), "exec"), espacio)
+
+        resultado = espacio["preparar_ninebox"](
+            pd.DataFrame(
+                [{
+                    "colaborador": "Indhira Mendoza Coste",
+                    "global": 81.75,
+                    "email_colaborador": "imendoza@speedster.com.do",
+                }]
+            ),
+            pd.DataFrame(
+                [{
+                    "colaborador": "Mendoza Coste Indhira Severiana",
+                    "evaluacion_potencial": 79.91,
+                    "correo": pd.NA,
+                }]
+            ),
+        )
+
+        self.assertEqual(len(resultado), 1)
+        self.assertEqual(resultado.iloc[0]["colaborador"], "Indhira Mendoza Coste")
+        self.assertEqual(resultado.iloc[0]["potencial"], 79.91)
+
+    def test_indice_global_no_duplica_el_nombre_ampliado(self):
+        ruta = Path(__file__).resolve().parents[1] / "dashboard_360.py"
+        arbol = ast.parse(ruta.read_text(encoding="utf-8-sig"))
+        requeridas = {
+            "normalizar_nombre_match",
+            "normalizar_correo",
+            "valor_limpio",
+            "construir_indice_colaboradores",
+        }
+        funciones = [
+            nodo
+            for nodo in arbol.body
+            if isinstance(nodo, ast.FunctionDef) and nodo.name in requeridas
+        ]
+        espacio = {
+            "pd": pd,
+            "motor_360": calculos,
+            "reparar_texto": lambda valor: str(valor).strip(),
+        }
+        exec(compile(ast.Module(body=funciones, type_ignores=[]), str(ruta), "exec"), espacio)
+
+        indice = espacio["construir_indice_colaboradores"](
+            {
+                "df_global": pd.DataFrame(
+                    [{
+                        "colaborador": "Indhira Mendoza Coste",
+                        "email_colaborador": "imendoza@speedster.com.do",
+                    }]
+                ),
+                "df_metadata": pd.DataFrame(),
+            },
+            {
+                "df_personas": pd.DataFrame(
+                    [{
+                        "colaborador": "Mendoza Coste Indhira Severiana",
+                        "correo": pd.NA,
+                    }]
+                )
+            },
+            {
+                "df_colaboradores": pd.DataFrame(
+                    [{
+                        "colaborador": "Indhira Mendoza Coste",
+                        "email_colaborador": "imendoza@speedster.com.do",
+                    }]
+                )
+            },
+        )
+
+        self.assertEqual(len(indice), 1)
+        self.assertEqual(indice.iloc[0]["correo"], "imendoza@speedster.com.do")
+
 
 if __name__ == "__main__":
     unittest.main()

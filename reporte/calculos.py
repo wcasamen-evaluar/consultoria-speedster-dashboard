@@ -9,6 +9,8 @@ Lo usan:
 """
 
 from pathlib import Path
+from collections import Counter
+from collections.abc import Iterable
 import math
 import re
 import unicodedata
@@ -121,10 +123,61 @@ def limpiar_nombre_competencia(nombre: str) -> str:
     return re.sub(r"^\d+(\.\d+)?\s+", "", str(nombre).strip())
 
 
-def _clave_nombre_persona(valor: object) -> str:
+def normalizar_nombre_persona(valor: object) -> str:
+    """Crea una llave de nombre tolerante a tildes y al orden de sus partes."""
+    if valor is None or pd.isna(valor):
+        return ""
     texto = unicodedata.normalize("NFKD", str(valor))
     texto = "".join(char for char in texto if not unicodedata.combining(char))
-    return re.sub(r"[^a-z0-9]+", " ", texto.casefold()).strip()
+    tokens = re.sub(r"[^a-z0-9]+", " ", texto.casefold()).split()
+    return " ".join(sorted(tokens))
+
+
+def nombres_persona_equivalentes(valor_a: object, valor_b: object) -> bool:
+    """Compara nombres admitiendo un único componente adicional.
+
+    La equivalencia flexible solo aplica cuando el nombre más corto contiene
+    al menos tres componentes. Así se cubren segundos nombres omitidos sin
+    convertir coincidencias breves o ambiguas en emparejamientos automáticos.
+    """
+    nombre_a = normalizar_nombre_persona(valor_a)
+    nombre_b = normalizar_nombre_persona(valor_b)
+    if not nombre_a or not nombre_b:
+        return False
+    if nombre_a == nombre_b:
+        return True
+
+    tokens_a = Counter(nombre_a.split())
+    tokens_b = Counter(nombre_b.split())
+    cantidad_a = sum(tokens_a.values())
+    cantidad_b = sum(tokens_b.values())
+    if min(cantidad_a, cantidad_b) < 3 or abs(cantidad_a - cantidad_b) != 1:
+        return False
+
+    corto, largo = (tokens_a, tokens_b) if cantidad_a < cantidad_b else (tokens_b, tokens_a)
+    return all(cantidad <= largo[token] for token, cantidad in corto.items())
+
+
+def resolver_nombre_equivalente_unico(valor: object, candidatos: Iterable[object]) -> str:
+    """Devuelve la llave normalizada solo cuando existe una coincidencia única."""
+    nombre = normalizar_nombre_persona(valor)
+    if not nombre:
+        return ""
+    claves = {
+        clave
+        for candidato in candidatos
+        if (clave := normalizar_nombre_persona(candidato))
+    }
+    if nombre in claves:
+        return nombre
+    equivalentes = {
+        clave for clave in claves if nombres_persona_equivalentes(nombre, clave)
+    }
+    return next(iter(equivalentes)) if len(equivalentes) == 1 else ""
+
+
+def _clave_nombre_persona(valor: object) -> str:
+    return normalizar_nombre_persona(valor)
 
 
 def filtrar_excluidos_desempeno(df: pd.DataFrame) -> pd.DataFrame:
@@ -293,6 +346,190 @@ def extraer_metadata_colaboradores(df: pd.DataFrame) -> pd.DataFrame:
         .agg({col: primer_valor for col in columnas_salida if col != "colaborador"})
         .reindex(columns=columnas_salida)
     )
+
+
+def _clave_columna_organizacional(valor: object) -> str:
+    if valor is None or pd.isna(valor):
+        return ""
+    texto = unicodedata.normalize("NFKD", str(valor))
+    texto = "".join(char for char in texto if not unicodedata.combining(char))
+    return re.sub(r"[^a-z0-9]+", " ", texto.casefold()).strip()
+
+
+def _texto_organizacional(valor: object) -> object:
+    if valor is None or pd.isna(valor):
+        return pd.NA
+    texto = re.sub(r"\s+", " ", str(valor)).strip()
+    return texto if texto and texto.casefold() not in {"nan", "none", "n/a", "na", "-"} else pd.NA
+
+
+def resolver_archivo_metadata_organizacional(ruta_fuente: str | Path) -> Path | None:
+    """Localiza la base maestra opcional que contiene segmentaciones."""
+    ruta = Path(ruta_fuente).resolve()
+    candidatos = [
+        ruta if ruta.name.casefold() == "base speedster.xlsx" else None,
+        ruta.parent / "documentos_raw" / "Base Speedster.xlsx",
+        ruta.parent / "Base Speedster.xlsx",
+        Path(__file__).resolve().parents[1] / "documentos_raw" / "Base Speedster.xlsx",
+    ]
+    return next((candidato for candidato in candidatos if candidato and candidato.is_file()), None)
+
+
+def leer_metadata_organizacional(ruta_fuente: str | Path) -> pd.DataFrame:
+    """Lee Empresa, País, Área, Cargo y Grupo desde la base maestra Speedster."""
+    columnas_salida = [
+        "colaborador",
+        "email_colaborador",
+        "empresa",
+        "pais",
+        "area",
+        "cargo",
+        "grupo",
+        "gente_a_cargo",
+    ]
+    ruta_metadata = resolver_archivo_metadata_organizacional(ruta_fuente)
+    if ruta_metadata is None:
+        return pd.DataFrame(columns=columnas_salida)
+
+    xls = pd.ExcelFile(ruta_metadata)
+    try:
+        hoja = next(
+            (
+                nombre
+                for nombre in xls.sheet_names
+                if "usuarios" in _clave_columna_organizacional(nombre)
+            ),
+            xls.sheet_names[0],
+        )
+        muestra = pd.read_excel(xls, sheet_name=hoja, header=None, nrows=12)
+        fila_encabezado = next(
+            (
+                indice
+                for indice, fila in muestra.iterrows()
+                if "email" in {_clave_columna_organizacional(valor) for valor in fila}
+                and any(
+                    _clave_columna_organizacional(valor).startswith("nombre evaluado")
+                    for valor in fila
+                )
+            ),
+            None,
+        )
+        if fila_encabezado is None:
+            return pd.DataFrame(columns=columnas_salida)
+        df = pd.read_excel(xls, sheet_name=hoja, header=int(fila_encabezado))
+    finally:
+        xls.close()
+
+    claves = {columna: _clave_columna_organizacional(columna) for columna in df.columns}
+
+    def buscar(*predicados):
+        return next(
+            (
+                columna
+                for columna, clave in claves.items()
+                if any(predicado(clave) for predicado in predicados)
+            ),
+            None,
+        )
+
+    col_nombre = buscar(lambda clave: clave.startswith("nombre evaluado"))
+    col_apellidos = buscar(lambda clave: clave.startswith("apellidos evaluado"))
+    col_email = buscar(lambda clave: clave == "email")
+    col_pais = buscar(lambda clave: clave.startswith("pais"))
+    col_area = buscar(
+        lambda clave: "unidad de negocio" in clave,
+        lambda clave: clave == "area",
+    )
+    col_cargo = buscar(lambda clave: "rol puesto" in clave)
+    col_grupo = buscar(lambda clave: "grupo ocupacional" in clave)
+    col_gente = buscar(lambda clave: "gente a cargo" in clave)
+    if col_nombre is None and col_email is None:
+        return pd.DataFrame(columns=columnas_salida)
+
+    nombres = df[col_nombre].map(_texto_organizacional) if col_nombre else pd.Series(pd.NA, index=df.index)
+    apellidos = df[col_apellidos].map(_texto_organizacional) if col_apellidos else pd.Series(pd.NA, index=df.index)
+    metadata = pd.DataFrame(index=df.index)
+    metadata["colaborador"] = (
+        nombres.fillna("").astype(str).str.strip()
+        + " "
+        + apellidos.fillna("").astype(str).str.strip()
+    ).str.replace(r"\s+", " ", regex=True).str.strip()
+    metadata["email_colaborador"] = (
+        df[col_email].map(_texto_organizacional) if col_email else pd.NA
+    )
+    metadata["empresa"] = "Speedster"
+    metadata["pais"] = df[col_pais].map(_texto_organizacional) if col_pais else pd.NA
+    metadata["area"] = df[col_area].map(_texto_organizacional) if col_area else pd.NA
+    metadata["cargo"] = df[col_cargo].map(_texto_organizacional) if col_cargo else pd.NA
+    metadata["grupo"] = df[col_grupo].map(_texto_organizacional) if col_grupo else pd.NA
+    metadata["gente_a_cargo"] = df[col_gente].map(_texto_organizacional) if col_gente else pd.NA
+    metadata.loc[
+        metadata["pais"].map(_clave_columna_organizacional).eq("republica dominicana"),
+        "pais",
+    ] = "República Dominicana"
+    metadata = metadata[
+        metadata["colaborador"].ne("") | metadata["email_colaborador"].notna()
+    ].copy()
+    metadata["email_colaborador"] = (
+        metadata["email_colaborador"].fillna("").astype(str).str.strip().str.casefold()
+    )
+    return metadata.drop_duplicates(
+        subset=["email_colaborador", "colaborador"],
+        keep="first",
+    ).reindex(columns=columnas_salida).reset_index(drop=True)
+
+
+def completar_metadata_colaboradores(
+    df: pd.DataFrame,
+    metadata: pd.DataFrame,
+    columna_nombre: str,
+    columna_email: str | None = None,
+) -> pd.DataFrame:
+    """Completa segmentaciones por correo o por una coincidencia única de nombre."""
+    resultado = df.copy()
+    if resultado.empty or metadata.empty or columna_nombre not in resultado.columns:
+        return resultado
+
+    campos = ["empresa", "pais", "area", "cargo", "grupo", "gente_a_cargo"]
+    for campo in campos:
+        if campo not in resultado.columns:
+            resultado[campo] = pd.NA
+    if columna_email and columna_email not in resultado.columns:
+        resultado[columna_email] = pd.NA
+
+    meta = metadata.copy()
+    meta["_match_email"] = (
+        meta["email_colaborador"].fillna("").astype(str).str.strip().str.casefold()
+    )
+    meta["_match_nombre"] = meta["colaborador"].map(normalizar_nombre_persona)
+    nombres_metadata = meta["_match_nombre"].dropna().astype(str).tolist()
+
+    def valor_real(valor: object) -> bool:
+        return pd.notna(valor) and str(valor).strip().casefold() not in {"", "nan", "none", "n/a", "na", "-"}
+
+    for indice, fila in resultado.iterrows():
+        coincidencias = pd.DataFrame()
+        if columna_email:
+            correo = fila.get(columna_email)
+            correo_key = str(correo).strip().casefold() if valor_real(correo) else ""
+            if correo_key:
+                coincidencias = meta[meta["_match_email"].eq(correo_key)]
+        if coincidencias.empty:
+            nombre_key = resolver_nombre_equivalente_unico(
+                fila.get(columna_nombre),
+                nombres_metadata,
+            )
+            if nombre_key:
+                coincidencias = meta[meta["_match_nombre"].eq(nombre_key)]
+        if len(coincidencias) != 1:
+            continue
+        persona = coincidencias.iloc[0]
+        if columna_email and not valor_real(resultado.at[indice, columna_email]):
+            resultado.at[indice, columna_email] = persona.get("email_colaborador")
+        for campo in campos:
+            if not valor_real(resultado.at[indice, campo]) and valor_real(persona.get(campo)):
+                resultado.at[indice, campo] = persona.get(campo)
+    return resultado
 
 
 def leer_excel(ruta: str | Path, sheet_name: str | None = "Resultado consulta") -> pd.DataFrame:

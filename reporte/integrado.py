@@ -7,8 +7,6 @@ Objetivos.
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -73,11 +71,7 @@ def resolver_excel_dashboard(ruta_base: str | Path | None = None) -> Path:
 
 
 def normalizar_nombre_match(nombre: object) -> str:
-    texto = "" if nombre is None else str(nombre)
-    texto = unicodedata.normalize("NFKD", texto)
-    texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
-    texto = re.sub(r"[^a-zA-Z0-9]+", " ", texto).strip().casefold()
-    return re.sub(r"\s+", " ", texto)
+    return motor_360.normalizar_nombre_persona("" if nombre is None else nombre)
 
 
 def normalizar_email_match(email: object) -> str:
@@ -207,6 +201,26 @@ def preparar_resultado_integrado(
             if isinstance(email, str) and email:
                 aliases.append({"match_key": f"email:{email}", "pot_match_key": principal})
         aliases.append({"match_key": f"nombre:{row.get('match_nombre', '')}", "pot_match_key": principal})
+
+    nombres_potencial = base_pot["match_nombre"].dropna().astype(str).tolist()
+    for fuente in (base_360, base_obj):
+        for nombre_fuente in fuente["match_nombre"].dropna().astype(str).unique():
+            nombre_potencial = motor_360.resolver_nombre_equivalente_unico(
+                nombre_fuente,
+                nombres_potencial,
+            )
+            if not nombre_potencial or nombre_potencial == nombre_fuente:
+                continue
+            llaves_potencial = base_pot.loc[
+                base_pot["match_nombre"].eq(nombre_potencial), "match_key"
+            ].dropna().unique()
+            if len(llaves_potencial) == 1:
+                aliases.append(
+                    {
+                        "match_key": f"nombre:{nombre_fuente}",
+                        "pot_match_key": llaves_potencial[0],
+                    }
+                )
     df_alias = pd.DataFrame(aliases).drop_duplicates("match_key") if aliases else pd.DataFrame(columns=["match_key", "pot_match_key"])
     base_pot = base_pot.rename(columns={"match_key": "pot_match_key"})
 
@@ -307,13 +321,27 @@ def preparar_ninebox(df_360_global: pd.DataFrame, df_potencial: pd.DataFrame) ->
     potencial = df_potencial[["colaborador", "evaluacion_potencial"]].copy()
     desempeno["match_nombre"] = desempeno["colaborador"].map(normalizar_nombre_match)
     potencial["match_nombre"] = potencial["colaborador"].map(normalizar_nombre_match)
-    desempeno = desempeno.drop_duplicates("match_nombre")
-    potencial = potencial.drop_duplicates("match_nombre")
-    merged = desempeno.merge(potencial, on="match_nombre", how="inner", suffixes=("_360", "_potencial"))
+    nombres_potencial = potencial["match_nombre"].dropna().astype(str).tolist()
+    desempeno["match_potencial"] = desempeno["match_nombre"].map(
+        lambda nombre: motor_360.resolver_nombre_equivalente_unico(
+            nombre,
+            nombres_potencial,
+        )
+    )
+    potencial["match_potencial"] = potencial["match_nombre"]
+    desempeno = desempeno[desempeno["match_potencial"].ne("")].drop_duplicates("match_potencial")
+    potencial = potencial.drop_duplicates("match_potencial")
+    merged = desempeno.merge(
+        potencial,
+        on="match_potencial",
+        how="inner",
+        suffixes=("_360", "_potencial"),
+    )
     merged = merged.dropna(subset=["global", "evaluacion_potencial"]).copy()
     merged = merged.rename(
         columns={
             "colaborador_360": "colaborador",
+            "match_nombre_360": "match_nombre",
             "global": "desempeno_360",
             "evaluacion_potencial": "potencial",
         }
@@ -619,6 +647,14 @@ def _objetivos_detalle_por_llaves(df_objetivos: pd.DataFrame, match: str, emails
 def cargar_base_reportes(ruta_excel: str | Path | None = None) -> dict[str, Any]:
     ruta = resolver_excel_dashboard(ruta_excel)
     df_360 = motor_360.leer_exportacion_dashboard(ruta)
+    metadata_organizacional = motor_360.leer_metadata_organizacional(ruta)
+    if not metadata_organizacional.empty:
+        df_360 = motor_360.completar_metadata_colaboradores(
+            df_360,
+            metadata_organizacional,
+            "nombre_colaborador",
+            "email_colaborador",
+        )
     df_360_calculo = motor_360.filtrar_excluidos_desempeno(df_360)
     res_360 = motor_360.calcular_dashboard(
         df_360_calculo,
@@ -646,6 +682,19 @@ def cargar_base_reportes(ruta_excel: str | Path | None = None) -> dict[str, Any]
         for _, row in res_360["df_comp_prom"].iterrows()
     }
     res_potencial = motor_potencial.leer_potencial(ruta)
+    if not metadata_organizacional.empty:
+        res_potencial["df_personas"] = motor_360.completar_metadata_colaboradores(
+            res_potencial["df_personas"],
+            metadata_organizacional,
+            "colaborador",
+            "correo",
+        )
+        res_potencial["df_competencias"] = motor_360.completar_metadata_colaboradores(
+            res_potencial["df_competencias"],
+            metadata_organizacional,
+            "colaborador",
+            "correo",
+        )
     res_objetivos = motor_objetivos.leer_objetivos(ruta)
     df_integrado = preparar_resultado_integrado(
         res_360["df_global"],
@@ -724,7 +773,7 @@ def cargar_base_reportes(ruta_excel: str | Path | None = None) -> dict[str, Any]
         ficha = {
             "cargo": _dato_real(integrado.get("cargo"), integrado.get("cargo_objetivo"), potencial.get("cargo"), objetivos.get("cargo_objetivo")),
             "area": _dato_real(integrado.get("area"), potencial.get("area")),
-            "empresa": _dato_real(integrado.get("empresa"), potencial.get("empresa"), default="Macrotech"),
+            "empresa": _dato_real(integrado.get("empresa"), potencial.get("empresa"), default="Speedster"),
             "pais": _dato_real(integrado.get("pais"), potencial.get("pais")),
             "grupo": _dato_real(integrado.get("grupo"), potencial.get("grupo")),
             "jefe": _dato_real(integrado.get("jefe"), potencial.get("jefe"), objetivos.get("jefe")),

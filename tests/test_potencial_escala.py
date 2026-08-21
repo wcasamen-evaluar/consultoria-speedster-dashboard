@@ -3,6 +3,8 @@ import json
 import unittest
 from pathlib import Path
 
+import pandas as pd
+
 from reporte import potencial
 
 
@@ -52,6 +54,80 @@ class EscalaPotencialTest(unittest.TestCase):
         rangos = [(item["from"], item["to"]) for item in config["ranges"]]
 
         self.assertEqual(rangos, [(0, 80), (80, 85), (85, 101)])
+
+    def test_niveles_de_competencias_usan_los_nombres_del_reporte(self):
+        casos = {
+            79.49: "Alejado del perfil",
+            79.50: "Cercano al Perfil",
+            84.50: "Cercano al Perfil",
+            84.51: "Ajuste al perfil",
+        }
+
+        for puntaje, etiqueta in casos.items():
+            with self.subTest(puntaje=puntaje):
+                self.assertEqual(
+                    potencial.clasificar_nivel_competencias(puntaje),
+                    etiqueta,
+                )
+
+        self.assertEqual(
+            potencial.RANGOS_NIVELES_COMPETENCIAS,
+            {
+                "Alejado del perfil": "0 - 79",
+                "Cercano al Perfil": "80 - 84",
+                "Ajuste al perfil": "85 - 100",
+            },
+        )
+
+    def test_valores_muestra_solo_competencias_con_evaluacion(self):
+        datos = pd.DataFrame(
+            {
+                "competencia": ["Integridad", "Integridad", "Creatividad"],
+                "ajuste": [0.90, 0.80, None],
+            }
+        )
+
+        resultado = potencial.resumir_competencias_evaluadas(
+            datos,
+            ["Creatividad", "Integridad", "Competencia sin evaluar"],
+        )
+
+        self.assertEqual(resultado["competencia"].tolist(), ["Integridad"])
+        self.assertAlmostEqual(resultado.iloc[0]["puntaje"], 85.0)
+
+    def test_valores_incluye_competencias_nuevas_evaluadas(self):
+        datos = pd.DataFrame(
+            {
+                "competencia": ["Competencia nueva", "Integridad"],
+                "ajuste": [0.75, 0.90],
+            }
+        )
+
+        resultado = potencial.resumir_competencias_evaluadas(
+            datos,
+            ["Integridad"],
+        )
+
+        self.assertEqual(
+            resultado["competencia"].tolist(),
+            ["Integridad", "Competencia nueva"],
+        )
+
+    def test_valores_se_ordenan_de_mayor_a_menor_promedio(self):
+        datos = pd.DataFrame(
+            {
+                "competencia": ["Creatividad", "Integridad", "Proactividad"],
+                "ajuste": [0.75, 0.98, 0.86],
+            }
+        )
+
+        resultado = potencial.resumir_competencias_evaluadas(datos)
+
+        self.assertEqual(
+            resultado["competencia"].tolist(),
+            ["Integridad", "Proactividad", "Creatividad"],
+        )
+        self.assertEqual(resultado["puntaje"].tolist(), [98.0, 86.0, 75.0])
 
 
 if __name__ == "__main__":

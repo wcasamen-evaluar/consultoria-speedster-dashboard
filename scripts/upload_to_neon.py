@@ -135,8 +135,35 @@ def leer_database_url() -> str:
 
 def preparar_tablas(excel_path: Path) -> dict[str, pd.DataFrame]:
     df_360 = motor_360.leer_exportacion_dashboard(excel_path)
+    metadata_organizacional = motor_360.leer_metadata_organizacional(excel_path)
+    if not metadata_organizacional.empty:
+        df_360 = motor_360.completar_metadata_colaboradores(
+            df_360,
+            metadata_organizacional,
+            "nombre_colaborador",
+            "email_colaborador",
+        )
     resultado_360 = motor_360.calcular_dashboard(df_360)
     resultado_potencial = motor_potencial.leer_potencial(excel_path)
+    if not metadata_organizacional.empty:
+        resultado_360["df_global"] = motor_360.completar_metadata_colaboradores(
+            resultado_360["df_global"],
+            metadata_organizacional,
+            "colaborador",
+            "email_colaborador",
+        )
+        resultado_potencial["df_personas"] = motor_360.completar_metadata_colaboradores(
+            resultado_potencial["df_personas"],
+            metadata_organizacional,
+            "colaborador",
+            "correo",
+        )
+        resultado_potencial["df_competencias"] = motor_360.completar_metadata_colaboradores(
+            resultado_potencial["df_competencias"],
+            metadata_organizacional,
+            "colaborador",
+            "correo",
+        )
     resultado_objetivos = motor_objetivos.leer_objetivos(excel_path)
 
     metadata = pd.DataFrame(
@@ -164,6 +191,7 @@ def preparar_tablas(excel_path: Path) -> dict[str, pd.DataFrame]:
 
     tablas = {
         "metadata_carga": metadata,
+        "metadata_organizacional": metadata_organizacional,
         "desempeno_raw": resultado_360["df_fuente"],
         "desempeno_global": resultado_360["df_global"],
         "desempeno_competencias": resultado_360["df_comp"],

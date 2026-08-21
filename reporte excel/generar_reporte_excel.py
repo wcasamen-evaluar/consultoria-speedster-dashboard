@@ -123,6 +123,14 @@ def construir_reporte(df_integrado: pd.DataFrame) -> pd.DataFrame:
 def construir_resumen(ruta_entrada: Path) -> pd.DataFrame:
     """Carga las tres evaluaciones y construye el reporte general."""
     df_360 = motor_360.leer_exportacion_dashboard(ruta_entrada)
+    metadata_organizacional = motor_360.leer_metadata_organizacional(ruta_entrada)
+    if not metadata_organizacional.empty:
+        df_360 = motor_360.completar_metadata_colaboradores(
+            df_360,
+            metadata_organizacional,
+            "nombre_colaborador",
+            "email_colaborador",
+        )
     df_360_calculo = motor_360.filtrar_excluidos_desempeno(df_360)
     resultado_360 = motor_360.calcular_dashboard(
         df_360_calculo,
@@ -136,6 +144,13 @@ def construir_resumen(ruta_entrada: Path) -> pd.DataFrame:
     )
 
     resultado_competencias = motor_competencias.leer_potencial(ruta_entrada)
+    if not metadata_organizacional.empty:
+        resultado_competencias["df_personas"] = motor_360.completar_metadata_colaboradores(
+            resultado_competencias["df_personas"],
+            metadata_organizacional,
+            "colaborador",
+            "correo",
+        )
     resultado_objetivos = motor_objetivos.leer_objetivos(ruta_entrada)
     df_integrado = motor_integrado.preparar_resultado_integrado(
         resultado_360["df_global"],

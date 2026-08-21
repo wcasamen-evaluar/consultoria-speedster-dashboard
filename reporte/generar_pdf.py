@@ -59,10 +59,9 @@ TOTAL_PAGES = 4
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 COVER_BG_OPTIMIZED = ASSETS_DIR / "portada_evaluar_bg_optimized.jpg"
 COVER_BG = ASSETS_DIR / "portada_evaluar_bg.png"
-LOGO_SVG = ASSETS_DIR / "brand_evaluar_on_dark.svg"
 LOGO_COVER = ASSETS_DIR / "logo_evaluar_cover_from_svg.png"
 LOGO_HEADER = ASSETS_DIR / "logo_evaluar_header.png"
-MACROTECH_LOGO = Path(__file__).resolve().parent.parent / "logos" / "Logo Macrotech horizontal.png"
+SPEEDSTER_LOGO = Path(__file__).resolve().parent.parent / "logos" / "speedster_logo.png"
 COMPETENCIAS_POT_JSON = ASSETS_DIR / "competencias_potencial.json"
 COMPETENCIAS_INTERPRETACION_JSON = ASSETS_DIR / "competencias_interpretacion.json"
 DISC_JSON = ASSETS_DIR / "disc.json"
@@ -255,53 +254,30 @@ def _barras_fallback(competencias, ancho_cm, alto_cm):
 # ---------------------------------------------------------------------------
 
 def _header(c, nombre, proceso, page_num):
-    y = H - PAD_TOP + 0.1*cm
-    c.setStrokeColor(LINE); c.setLineWidth(0.5)
-    c.line(PAD_LAT, y-0.70*cm, W-PAD_LAT, y-0.70*cm)
-
-    c.setFont("Helvetica-Bold",8); c.setFillColor(MAGENTA)
-    c.drawString(PAD_LAT, y-0.44*cm, "evaluar.com")
-
-    c.setStrokeColor(LINE_STR); c.setLineWidth(0.5)
-    c.line(PAD_LAT+1.8*cm, y-0.14*cm, PAD_LAT+1.8*cm, y-0.60*cm)
-
-    c.setFont("Helvetica",8); c.setFillColor(INK_SOFT)
-    c.drawString(PAD_LAT+2.0*cm, y-0.44*cm, proceso)
-    c.drawRightString(W-PAD_LAT, y-0.44*cm,
-                      f"{nombre}  \u00b7  {page_num:02d} / {TOTAL_PAGES:02d}")
-
-
-def _footer(c, proceso, page_num):
-    y = PAD_BOT - 0.4*cm
-    c.setStrokeColor(LINE); c.setLineWidth(0.5)
-    c.line(PAD_LAT, y+0.55*cm, W-PAD_LAT, y+0.55*cm)
-    c.setFont("Helvetica",7.5); c.setFillColor(INK_SOFT)
-    c.drawString(PAD_LAT, y+0.25*cm, f"evaluar.com  \u00b7  {proceso}")
-    c.drawRightString(W-PAD_LAT, y+0.25*cm,
-                      f"{page_num:02d} / {TOTAL_PAGES:02d}")
-
-
-def _header(c, nombre, proceso, page_num):
-    if MACROTECH_LOGO.exists():
+    if SPEEDSTER_LOGO.exists():
         try:
-            img = ImageReader(str(MACROTECH_LOGO))
+            img = ImageReader(str(SPEEDSTER_LOGO))
             iw, ih = img.getSize()
-            logo_w = 4.05*cm
+            logo_w = 5.20*cm
             logo_h = logo_w * (ih / iw)
-            max_h = 1.05*cm
+            max_h = 1.60*cm
             if logo_h > max_h:
                 logo_h = max_h
                 logo_w = logo_h * (iw / ih)
             c.drawImage(
-                str(MACROTECH_LOGO),
+                str(SPEEDSTER_LOGO),
                 PAD_LAT,
-                H - 0.78*cm - logo_h,
+                H - 0.45*cm - logo_h,
                 width=logo_w,
                 height=logo_h,
                 mask="auto",
             )
         except Exception:
             pass
+    else:
+        c.setFont("Helvetica-Bold", 16)
+        c.setFillColor(INK)
+        c.drawString(PAD_LAT, H - 1.25*cm, "Speedster")
     if LOGO_HEADER.exists():
         logo_w = 3.45*cm
         logo_h = logo_w * (80 / 356)
@@ -316,7 +292,7 @@ def _header(c, nombre, proceso, page_num):
     else:
         c.setFont("Helvetica-BoldOblique", 16)
         c.setFillColor(INK)
-        c.drawString(PAD_LAT, y - 0.40*cm, "evaluar")
+        c.drawRightString(W - PAD_LAT, H - 1.25*cm, "evaluar")
 
 
 def _footer(c, proceso, page_num):
@@ -400,7 +376,7 @@ def _portada(c, nombre, proceso, cliente, fecha, cargo="", area=""):
                  "Reporte Individual  \u00b7  Confidencial \u00b7 Uso interno de RRHH")
     c.drawRightString(W-PAD_LAT, yf+0.25*cm, f"01 / {TOTAL_PAGES:02d}")
 
-# Portada Evaluar 2026
+# Portada de resultados
 # ---------------------------------------------------------------------------
 
 def _portada(c, nombre, proceso, cliente, fecha, cargo="", area="", contexto_integral=None):
@@ -1094,7 +1070,7 @@ def _draw_pill(c, x, y, w, h, text, fill, color, font="Helvetica-Bold", size=8):
 
 
 def _draw_cover_logo(c, x_right, y_top, width=3.0*cm):
-    """Dibuja una version vectorial compacta del logo evaluar sobre fondo oscuro."""
+    """Dibuja el logo de Evaluar sobre la portada."""
     if LOGO_COVER.exists():
         img = ImageReader(str(LOGO_COVER))
         iw, ih = img.getSize()
@@ -1116,19 +1092,9 @@ def _draw_cover_logo(c, x_right, y_top, width=3.0*cm):
     scale = width / total
     c.translate(x_right - width, y_top - size * scale)
     c.scale(scale, scale)
-    x = 0
     c.setFont(font, size)
     c.setFillColor(WHITE)
-    c.drawString(x, 0, "e")
-    x += stringWidth("e", font, size)
-    c.setFillColor(MAGENTA)
-    c.drawString(x - 1.2, 0, "v")
-    c.setStrokeColor(AMBER)
-    c.setLineWidth(1.4)
-    c.line(x + 1.2, -1.8, x + 12.8, -1.8)
-    x += stringWidth("v", font, size)
-    c.setFillColor(WHITE)
-    c.drawString(x - 1.0, 0, "aluar")
+    c.drawString(0, 0, text)
     c.restoreState()
 
 
@@ -2007,7 +1973,7 @@ def _compact_data_chip(label, value, width_cm):
 def _primera_hoja_intro(nombre, cargo, empresa, jefe, ancho, badge="Evaluación de Competencias"):
     logo_row = Table(
         [[
-            _logo_flow(MACROTECH_LOGO, 4.05, 1.05),
+            _logo_flow(SPEEDSTER_LOGO, 5.20, 1.60),
             _logo_flow(LOGO_HEADER, 3.65, 0.85),
         ]],
         colWidths=[ancho/2, ancho/2],
@@ -2797,7 +2763,7 @@ def generar_pdf(nombre, resultado, proceso, cliente, fecha,
         objetivos_intro.get("cargo_objetivo"),
         proceso,
     )
-    empresa_intro = _primer_texto_real(ficha_intro.get("empresa"), cliente, default="Macrotech")
+    empresa_intro = _primer_texto_real(ficha_intro.get("empresa"), cliente, default="Speedster")
     jefe_intro = _primer_texto_real(ficha_intro.get("jefe"), objetivos_intro.get("jefe"))
     primera_badge = "Evaluación de Competencias"
     if not hay_potencial and hay_360:

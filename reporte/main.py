@@ -24,7 +24,7 @@ import generar_pdf
 import integrado
 
 
-CLIENTE = "Macrotech"
+CLIENTE = "Speedster"
 PROCESO = "Evaluacion de Desempeno 360"
 FECHA = datetime.now().strftime("%d/%m/%Y")
 CARPETA_OUTPUT = Path(__file__).parent / "output"
@@ -71,7 +71,7 @@ def main() -> None:
     args = parse_args()
 
     print("=" * 60)
-    print("  Evaluar.com - Generador de Informes Integrales")
+    print("  Speedster - Generador de Informes Integrales")
     print(f"  Cliente : {CLIENTE}")
     print(f"  Proceso : {PROCESO}")
     print(f"  Fecha   : {FECHA}")
