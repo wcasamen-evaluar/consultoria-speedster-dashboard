@@ -38,7 +38,7 @@ ARCHIVO_BASE = next(
     Path(__file__).with_name("Fase_I_Evaluación_360__180__90__copia_.xlsx"),
 )
 VERSION_CARGA_BASE = 10
-VERSION_CARGA_DB = 10
+VERSION_CARGA_DB = 11
 
 EXCLUIDOS_DESEMPENO_EMAILS = {
     "malvarado@macrotech.com.do",
@@ -1692,7 +1692,7 @@ def fig_ninebox(df_clasificado: pd.DataFrame) -> go.Figure:
     fig = go.Figure(go.Heatmap(
         z=z,
         x=["Bajo desempeño", "Desempeño medio", "Alto desempeño"],
-        y=["Alto potencial", "Potencial medio", "Bajo potencial"],
+        y=["Alto potencial", "Potencial medio", "Potencial bajo"],
         colorscale=colorscale,
         showscale=False,
         hoverinfo="skip",
@@ -4192,9 +4192,9 @@ if fase_activa == "fase2":
                 "<th>Nivel de Competencias</th></tr></thead><tbody>"
             )
             fondos_nivel = {
-                "Ajuste al perfil": "#e5f4ea",
-                "Cercano al Perfil": "#fff6d6",
-                "Alejado del perfil": "#fbe9e8",
+                "Alto potencial": "#e5f4ea",
+                "Potencial medio": "#fff6d6",
+                "Potencial bajo": "#fbe9e8",
             }
             for _, fila in tabla_evaluados.iterrows():
                 colaborador_valor = fila.get("colaborador")

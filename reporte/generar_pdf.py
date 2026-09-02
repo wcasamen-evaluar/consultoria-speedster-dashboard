@@ -1313,7 +1313,7 @@ def _cap_interpretacion(score):
             "name": "Sin dato",
             "interpretation": "No hay competencias de potencial suficientes para calcular el resultado global.",
         }
-    percent = round(score * 100)
+    percent = float(score) * 100
     for item in _cap_config().get("ranges", []):
         start = float(item.get("from", 0))
         end = float(item.get("to", 0))
@@ -1334,25 +1334,25 @@ def _cap_interpretacion(score):
 
 
 def _cap_color(name):
-    if name in {"Potencial Alto", "Ajustado al Perfil"}:
+    if name in {"Alto potencial", "Potencial Alto", "Ajustado al Perfil"}:
         return colors.HexColor("#00A651")
-    if name in {"Potencial Medio", "Cercano al Perfil"}:
+    if name in {"Potencial medio", "Potencial Medio", "Cercano al Perfil"}:
         return colors.HexColor("#FF8A00")
     return colors.HexColor("#E53935")
 
 
 def _cap_bg_color(name):
-    if name in {"Potencial Alto", "Ajustado al Perfil"}:
+    if name in {"Alto potencial", "Potencial Alto", "Ajustado al Perfil"}:
         return colors.HexColor("#EAF7F0")
-    if name in {"Potencial Medio", "Cercano al Perfil"}:
+    if name in {"Potencial medio", "Potencial Medio", "Cercano al Perfil"}:
         return colors.HexColor("#FFF3E2")
     return colors.HexColor("#FDEBEC")
 
 
 def _cap_color_hex(name):
-    if name in {"Potencial Alto", "Ajustado al Perfil"}:
+    if name in {"Alto potencial", "Potencial Alto", "Ajustado al Perfil"}:
         return "#00A651"
-    if name in {"Potencial Medio", "Cercano al Perfil"}:
+    if name in {"Potencial medio", "Potencial Medio", "Cercano al Perfil"}:
         return "#FF8A00"
     return "#E53935"
 
@@ -1617,7 +1617,7 @@ def crear_donut_cap(percent, label, ancho_cm=4.2, alto_cm=4.2):
     fig, ax = plt.subplots(figsize=(ancho_cm/2.54, alto_cm/2.54), subplot_kw=dict(aspect="equal"))
     fig.patch.set_facecolor("#ffffff")
     ax.axis("off")
-    color = "#00A651" if label in {"Potencial Alto", "Ajustado al Perfil"} else "#FF8A00" if label in {"Potencial Medio", "Cercano al Perfil"} else "#E53935"
+    color = "#00A651" if label in {"Alto potencial", "Potencial Alto", "Ajustado al Perfil"} else "#FF8A00" if label in {"Potencial medio", "Potencial Medio", "Cercano al Perfil"} else "#E53935"
     ax.pie(
         [valor, 100 - valor],
         startangle=90,
@@ -2336,10 +2336,12 @@ def _semaforo_cap(ancho, estilos):
         end = float(item.get("to", 0))
         if end > 1:
             start_pct = start * 100 if start <= 1 else start
-            end_pct = min(end, 100)
-            rango = f"{start_pct:.0f} a {end_pct:.0f}%"
+            end_pct = min(end, 101)
+            end_visible = 100 if end_pct >= 101 else end_pct - 0.01
+            rango = f"{start_pct:.0f} a {end_visible:.2f}%".replace(".", ",")
         else:
-            rango = f"{start * 100:.0f} a {end * 100:.0f}%"
+            end_visible = 100 if end >= 1.01 else end * 100 - 0.01
+            rango = f"{start * 100:.0f} a {end_visible:.2f}%".replace(".", ",")
         name = item["name"]
         color = _cap_color(name)
         bg = _cap_bg_color(name)

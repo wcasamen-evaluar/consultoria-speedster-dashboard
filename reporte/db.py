@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from reporte import objetivos as motor_objetivos
+from reporte import potencial as motor_potencial
 
 
 def resolver_database_url(secrets: Mapping[str, Any]) -> str:
@@ -101,6 +102,16 @@ def leer_base_dashboard(database_url: str, schema: str = "public") -> tuple[pd.D
     for col in ["potencial_2025", "evaluacion_potencial"]:
         if col in df_personas.columns:
             df_personas[col] = pd.to_numeric(df_personas[col], errors="coerce")
+
+    # Las etiquetas se derivan siempre del puntaje para que una carga histórica
+    # de Neon no contradiga los cortes oficiales vigentes.
+    if "evaluacion_potencial" in df_personas.columns:
+        escala_oficial = df_personas["evaluacion_potencial"].map(
+            motor_potencial.clasificar_nivel_potencial
+        )
+        escala_oficial = escala_oficial.replace("", pd.NA)
+        df_personas["escala_benchmark"] = escala_oficial
+        df_personas["escala_potencial"] = escala_oficial
 
     for col in ["valor", "esperado", "brecha", "ajuste"]:
         if col in df_competencias.columns:

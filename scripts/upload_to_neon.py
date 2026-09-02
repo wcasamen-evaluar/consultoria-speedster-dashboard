@@ -245,7 +245,7 @@ def subir_tablas(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Sube a Neon las tablas normalizadas del dashboard Macrotech."
+        description="Sube a Neon las tablas normalizadas del dashboard Speedster."
     )
     parser.add_argument("--excel", help="Ruta del archivo base .xlsx.")
     parser.add_argument(

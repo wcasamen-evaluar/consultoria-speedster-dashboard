@@ -12,6 +12,43 @@ EXCEL = ROOT / "Fase_I_Evaluación_360__180__90__copia_.xlsx"
 
 
 class MetadataSpeedsterTest(unittest.TestCase):
+    def test_especialistas_usa_el_catalogo_corregido(self):
+        df_360 = calculos.leer_exportacion_dashboard(EXCEL)
+        metadata = calculos.leer_metadata_organizacional(EXCEL)
+        df_360 = calculos.completar_metadata_colaboradores(
+            df_360,
+            metadata,
+            "nombre_colaborador",
+            "email_colaborador",
+        )
+        especialistas = df_360[
+            df_360["grupo"].astype(str).str.casefold() == "especialistas"
+        ]
+
+        self.assertEqual(len(especialistas), 216)
+        self.assertEqual(especialistas["nombre_colaborador"].nunique(), 6)
+        self.assertEqual(
+            set(especialistas["competencia"]),
+            {
+                "Comunicación Efectiva",
+                "Credibilidad técnica",
+                "Orientación al Cliente",
+                "Orientación al Logro",
+                "Pensamiento analítico",
+                "Trabajo en Equipo",
+            },
+        )
+
+    def test_indhira_usa_la_clasificacion_oficial_sin_redondeo(self):
+        personas = potencial.leer_potencial(EXCEL)["df_personas"]
+        indhira = personas[
+            personas["colaborador"].str.contains("Indhira", case=False, na=False)
+        ].iloc[0]
+
+        self.assertAlmostEqual(indhira["evaluacion_potencial"], 79.91)
+        self.assertEqual(indhira["escala_benchmark"], "Potencial bajo")
+        self.assertEqual(indhira["escala_potencial"], "Potencial bajo")
+
     def test_lee_la_base_organizacional_y_fija_empresa(self):
         metadata = calculos.leer_metadata_organizacional(EXCEL)
 

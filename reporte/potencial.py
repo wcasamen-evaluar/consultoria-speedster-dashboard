@@ -12,50 +12,53 @@ import pandas as pd
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
 HOJA_POTENCIAL = "Potencial"
-ETIQUETAS_ESCALA = ["Ajustado al perfil", "Cercano al perfil", "Alejado al perfil"]
-MAPA_ESCALA = {etiqueta.casefold(): etiqueta for etiqueta in ETIQUETAS_ESCALA}
 LIMITES_NIVEL_POTENCIAL = (80, 85)
-NIVELES_COMPETENCIAS = [
-    "Alejado del perfil",
-    "Cercano al Perfil",
-    "Ajuste al perfil",
+NIVELES_POTENCIAL = [
+    "Potencial bajo",
+    "Potencial medio",
+    "Alto potencial",
 ]
+NIVELES_COMPETENCIAS = NIVELES_POTENCIAL
+ETIQUETAS_ESCALA = NIVELES_POTENCIAL
+MAPA_ESCALA = {
+    **{etiqueta.casefold(): etiqueta for etiqueta in ETIQUETAS_ESCALA},
+    "potencial bajo": "Potencial bajo",
+    "potencial medio": "Potencial medio",
+    "potencial alto": "Alto potencial",
+    "alto potencial": "Alto potencial",
+    "alejado al perfil": "Potencial bajo",
+    "alejado del perfil": "Potencial bajo",
+    "cercano al perfil": "Potencial medio",
+    "ajustado al perfil": "Alto potencial",
+    "ajuste al perfil": "Alto potencial",
+}
 RANGOS_NIVELES_COMPETENCIAS = {
-    "Alejado del perfil": "0 - 79",
-    "Cercano al Perfil": "80 - 84",
-    "Ajuste al perfil": "85 - 100",
+    "Potencial bajo": "0 - 79,99",
+    "Potencial medio": "80 - 84,99",
+    "Alto potencial": "85 - 100",
 }
 COLORES_NIVELES_COMPETENCIAS = {
-    "Alejado del perfil": "#d94a45",
-    "Cercano al Perfil": "#f0a000",
-    "Ajuste al perfil": "#1d9e75",
+    "Potencial bajo": "#d94a45",
+    "Potencial medio": "#f0a000",
+    "Alto potencial": "#1d9e75",
 }
 
 
 def clasificar_nivel_potencial(valor: object) -> str:
-    """Redondea el puntaje al entero y aplica la escala oficial 80/85."""
+    """Aplica la escala oficial a la cifra original, sin redondearla."""
     puntaje = pd.to_numeric(pd.Series([valor]), errors="coerce").iloc[0]
     if pd.isna(puntaje):
         return ""
-    puntaje_redondeado = round(float(puntaje))
-    if puntaje_redondeado >= LIMITES_NIVEL_POTENCIAL[1]:
-        return "Potencial Alto"
-    if puntaje_redondeado >= LIMITES_NIVEL_POTENCIAL[0]:
-        return "Potencial Medio"
-    return "Potencial Bajo"
+    if float(puntaje) >= LIMITES_NIVEL_POTENCIAL[1]:
+        return "Alto potencial"
+    if float(puntaje) >= LIMITES_NIVEL_POTENCIAL[0]:
+        return "Potencial medio"
+    return "Potencial bajo"
 
 
 def clasificar_nivel_competencias(valor: object) -> str:
-    """Aplica los cortes oficiales 80/85 con las etiquetas de competencias."""
-    puntaje = pd.to_numeric(pd.Series([valor]), errors="coerce").iloc[0]
-    if pd.isna(puntaje):
-        return ""
-    puntaje_redondeado = round(float(puntaje))
-    if puntaje_redondeado >= LIMITES_NIVEL_POTENCIAL[1]:
-        return "Ajuste al perfil"
-    if puntaje_redondeado >= LIMITES_NIVEL_POTENCIAL[0]:
-        return "Cercano al Perfil"
-    return "Alejado del perfil"
+    """Mantiene el alias usado por el dashboard con las etiquetas oficiales."""
+    return clasificar_nivel_potencial(valor)
 
 
 def resumir_competencias_evaluadas(
@@ -239,19 +242,16 @@ def _completar_encabezados_persona(
 def _clasificar_potencial(
     valor,
     limites: tuple[float, float],
-    redondear: bool = False,
 ):
     puntaje = pd.to_numeric(pd.Series([valor]), errors="coerce").iloc[0]
     if pd.isna(puntaje):
         return pd.NA
-    if redondear:
-        puntaje = round(float(puntaje))
     bajo, alto = limites
     if puntaje >= alto:
-        return "Ajustado al perfil"
+        return "Alto potencial"
     if puntaje >= bajo:
-        return "Cercano al perfil"
-    return "Alejado al perfil"
+        return "Potencial medio"
+    return "Potencial bajo"
 
 
 def _preparar_columnas_persona(df: pd.DataFrame) -> pd.DataFrame:
@@ -352,18 +352,12 @@ def leer_potencial(ruta: str | Path) -> dict:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     if df["evaluacion_potencial"].notna().sum() == 0 and "potencial_2025" in df.columns:
         df["evaluacion_potencial"] = df["potencial_2025"]
-    if df["escala_benchmark"].isna().all():
-        df["escala_benchmark"] = df["evaluacion_potencial"].apply(
-            lambda valor: _clasificar_potencial(
-                valor,
-                LIMITES_NIVEL_POTENCIAL,
-                redondear=True,
-            )
-        )
-    if df["escala_potencial"].isna().all():
-        df["escala_potencial"] = df["evaluacion_potencial"].apply(
-            lambda valor: _clasificar_potencial(valor, (82, 98))
-        )
+    # El puntaje numérico es la fuente oficial. Se recalculan ambas columnas
+    # para no heredar etiquetas históricas o inconsistentes del archivo origen.
+    escala_oficial = df["evaluacion_potencial"].apply(clasificar_nivel_potencial)
+    escala_oficial = escala_oficial.replace("", pd.NA)
+    df["escala_benchmark"] = escala_oficial
+    df["escala_potencial"] = escala_oficial
 
     columnas = list(df.columns)
     competencias = []

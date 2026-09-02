@@ -1,4 +1,7 @@
+import ast
+import json
 import unittest
+from pathlib import Path
 
 import pandas as pd
 
@@ -6,6 +9,39 @@ from reporte import integrado
 
 
 class ReportesMetadataEscalasTest(unittest.TestCase):
+    def test_pdf_clasifica_decimales_sin_redondearlos(self):
+        raiz = Path(__file__).resolve().parents[1]
+        ruta_pdf = raiz / "reporte" / "generar_pdf.py"
+        arbol = ast.parse(ruta_pdf.read_text(encoding="utf-8-sig"))
+        funcion = next(
+            nodo
+            for nodo in arbol.body
+            if isinstance(nodo, ast.FunctionDef)
+            and nodo.name == "_cap_interpretacion"
+        )
+        config = json.loads(
+            (raiz / "reporte" / "assets" / "cap.json").read_text(encoding="utf-8")
+        )
+        espacio = {"_cap_config": lambda: config}
+        exec(
+            compile(ast.Module(body=[funcion], type_ignores=[]), str(ruta_pdf), "exec"),
+            espacio,
+        )
+        clasificar = espacio["_cap_interpretacion"]
+
+        self.assertEqual(
+            clasificar(0.7991)["name"],
+            "Potencial bajo",
+        )
+        self.assertEqual(
+            clasificar(0.8000)["name"],
+            "Potencial medio",
+        )
+        self.assertEqual(
+            clasificar(0.8500)["name"],
+            "Alto potencial",
+        )
+
     def test_metadata_360_solo_completa_personas_sin_potencial(self):
         desempeno = pd.DataFrame(
             {

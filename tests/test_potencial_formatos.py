@@ -51,6 +51,8 @@ class PotencialFormatosTest(unittest.TestCase):
         self.assertEqual(len(resultado["df_competencias"]), 2)
         self.assertEqual(resultado["df_personas"].iloc[0]["colaborador"], "Ana Pérez")
         self.assertEqual(resultado["df_personas"].iloc[0]["arquetipo"], "C")
+        self.assertEqual(resultado["df_personas"].iloc[0]["escala_benchmark"], "Alto potencial")
+        self.assertEqual(resultado["df_personas"].iloc[0]["escala_potencial"], "Alto potencial")
 
     def test_lee_formato_speedster_y_prioriza_nombres_apellidos(self):
         grupos = [None] * 32
@@ -84,6 +86,8 @@ class PotencialFormatosTest(unittest.TestCase):
         self.assertEqual(persona["colaborador"], "Ana María Pérez")
         self.assertEqual(persona["cargo"], "Gerencia Comercial")
         self.assertEqual(persona["evaluacion_potencial"], 91)
+        self.assertEqual(persona["escala_benchmark"], "Alto potencial")
+        self.assertEqual(persona["escala_potencial"], "Alto potencial")
         self.assertEqual(persona["arquetipo"], "C")
         self.assertEqual(resultado["catalogo_competencias"], ["Autocontrol"])
         self.assertAlmostEqual(competencia["ajuste"], 0.89)

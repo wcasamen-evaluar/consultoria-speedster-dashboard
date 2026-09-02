@@ -9,15 +9,15 @@ from reporte import potencial
 
 
 class EscalaPotencialTest(unittest.TestCase):
-    def test_redondea_antes_de_clasificar_con_cortes_80_y_85(self):
+    def test_clasifica_sin_redondear_con_cortes_80_y_85(self):
         casos = {
-            57.05: "Potencial Bajo",
-            79.49: "Potencial Bajo",
-            79.50: "Potencial Medio",
-            84.49: "Potencial Medio",
-            84.50: "Potencial Medio",
-            84.51: "Potencial Alto",
-            100: "Potencial Alto",
+            57.05: "Potencial bajo",
+            79.91: "Potencial bajo",
+            79.99: "Potencial bajo",
+            80.00: "Potencial medio",
+            84.99: "Potencial medio",
+            85.00: "Alto potencial",
+            100: "Alto potencial",
         }
 
         for puntaje, etiqueta in casos.items():
@@ -52,15 +52,21 @@ class EscalaPotencialTest(unittest.TestCase):
         )
         config = json.loads(ruta.read_text(encoding="utf-8"))
         rangos = [(item["from"], item["to"]) for item in config["ranges"]]
+        nombres = [item["name"] for item in config["ranges"]]
 
         self.assertEqual(rangos, [(0, 80), (80, 85), (85, 101)])
+        self.assertEqual(
+            nombres,
+            ["Potencial bajo", "Potencial medio", "Alto potencial"],
+        )
 
     def test_niveles_de_competencias_usan_los_nombres_del_reporte(self):
         casos = {
-            79.49: "Alejado del perfil",
-            79.50: "Cercano al Perfil",
-            84.50: "Cercano al Perfil",
-            84.51: "Ajuste al perfil",
+            79.91: "Potencial bajo",
+            79.99: "Potencial bajo",
+            80.00: "Potencial medio",
+            84.99: "Potencial medio",
+            85.00: "Alto potencial",
         }
 
         for puntaje, etiqueta in casos.items():
@@ -73,9 +79,9 @@ class EscalaPotencialTest(unittest.TestCase):
         self.assertEqual(
             potencial.RANGOS_NIVELES_COMPETENCIAS,
             {
-                "Alejado del perfil": "0 - 79",
-                "Cercano al Perfil": "80 - 84",
-                "Ajuste al perfil": "85 - 100",
+                "Potencial bajo": "0 - 79,99",
+                "Potencial medio": "80 - 84,99",
+                "Alto potencial": "85 - 100",
             },
         )
 
