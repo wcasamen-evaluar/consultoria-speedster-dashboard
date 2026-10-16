@@ -38,7 +38,7 @@ ARCHIVO_BASE = next(
     Path(__file__).with_name("Fase_I_Evaluación_360__180__90__copia_.xlsx"),
 )
 VERSION_CARGA_BASE = 10
-VERSION_CARGA_DB = 11
+VERSION_CARGA_DB = 12
 
 EXCLUIDOS_DESEMPENO_EMAILS = {
     "malvarado@macrotech.com.do",
